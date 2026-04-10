@@ -114,6 +114,10 @@ goes_layer_id <- function() {
   "goes-latest-layer"
 }
 
+buildings_layer_id <- function() {
+  "3d-buildings"
+}
+
 wms_tiles_url <- function(layer_id) {
   layer <- get_wms_layer(layer_id)
 
@@ -163,9 +167,21 @@ goes_tiles_url <- function() {
 
 legend_theme <- function(dark_mode) {
   list(
-    background = if (isTRUE(dark_mode)) "rgba(9,15,25,0.88)" else "rgba(255,255,255,0.92)",
-    border = if (isTRUE(dark_mode)) "1px solid rgba(148,163,184,0.22)" else "1px solid rgba(15,23,42,0.08)",
-    shadow = if (isTRUE(dark_mode)) "0 12px 32px rgba(0,0,0,0.45)" else "0 2px 10px rgba(0,0,0,0.18)",
+    background = if (isTRUE(dark_mode)) {
+      "rgba(9,15,25,0.88)"
+    } else {
+      "rgba(255,255,255,0.92)"
+    },
+    border = if (isTRUE(dark_mode)) {
+      "1px solid rgba(148,163,184,0.22)"
+    } else {
+      "1px solid rgba(15,23,42,0.08)"
+    },
+    shadow = if (isTRUE(dark_mode)) {
+      "0 12px 32px rgba(0,0,0,0.45)"
+    } else {
+      "0 2px 10px rgba(0,0,0,0.18)"
+    },
     text = if (isTRUE(dark_mode)) "#e2e8f0" else "#0f172a"
   )
 }
@@ -175,17 +191,31 @@ wms_legend_html <- function(layer_id, dark_mode = FALSE) {
   theme <- legend_theme(dark_mode)
 
   paste0(
-    "<div style='background:", theme$background, ";",
-    "color:", theme$text, ";",
+    "<div style='background:",
+    theme$background,
+    ";",
+    "color:",
+    theme$text,
+    ";",
     "padding:10px 12px;",
     "border-radius:12px;",
-    "border:", theme$border, ";",
-    "box-shadow:", theme$shadow, ";",
+    "border:",
+    theme$border,
+    ";",
+    "box-shadow:",
+    theme$shadow,
+    ";",
     "backdrop-filter:blur(10px);",
     "max-width:220px;'>",
-    "<div style='font-weight:600; margin-bottom:8px;'>", layer$label, "</div>",
-    "<img src='", wms_legend_url(layer_id), "'",
-    " alt='Legenda da camada WMS ", layer$label, "'",
+    "<div style='font-weight:600; margin-bottom:8px;'>",
+    layer$label,
+    "</div>",
+    "<img src='",
+    wms_legend_url(layer_id),
+    "'",
+    " alt='Legenda da camada WMS ",
+    layer$label,
+    "'",
     " style='display:block; max-width:100%; height:auto;'/>",
     "</div>"
   )
@@ -317,7 +347,11 @@ add_wms_catalog <- function(map, selected_layer, wms_opacity) {
         id = wms_layer_id(layer_id),
         source = wms_source_id(layer_id),
         raster_opacity = wms_opacity,
-        visibility = if (identical(layer_id, selected_layer)) "visible" else "none"
+        visibility = if (identical(layer_id, selected_layer)) {
+          "visible"
+        } else {
+          "none"
+        }
       )
   }
 
@@ -341,7 +375,37 @@ add_goes_overlay <- function(map, show_goes, goes_opacity) {
     )
 }
 
-build_map <- function(style_name, selected_layer, wms_opacity, show_goes, goes_opacity) {
+add_buildings_layer <- function(map) {
+  map |>
+    add_fill_extrusion_layer(
+      id = buildings_layer_id(),
+      source = "composite",
+      source_layer = "building",
+      fill_extrusion_color = "#d6d3d1",
+      fill_extrusion_base = list("coalesce", list("get", "min_height"), 0),
+      fill_extrusion_height = list(
+        "interpolate",
+        list("linear"),
+        list("zoom"),
+        13,
+        0,
+        15,
+        list("coalesce", list("get", "height"), 0)
+      ),
+      fill_extrusion_opacity = 0.72,
+      min_zoom = 13,
+      before_id = goes_layer_id(),
+      filter = list("==", "extrude", "true")
+    )
+}
+
+build_map <- function(
+  style_name,
+  selected_layer,
+  wms_opacity,
+  show_goes,
+  goes_opacity
+) {
   mapboxgl(
     style = mapbox_style(style_name),
     center = MAP_CENTER,
@@ -349,6 +413,7 @@ build_map <- function(style_name, selected_layer, wms_opacity, show_goes, goes_o
   ) |>
     add_wms_catalog(selected_layer, wms_opacity) |>
     add_goes_overlay(show_goes, goes_opacity) |>
+    add_buildings_layer() |>
     move_layer(
       layer_id = goes_layer_id(),
       before_id = wms_layer_id(selected_layer)
@@ -434,7 +499,11 @@ ui <- page_fillable(
       step = 0.05
     ),
     hr(),
-    checkboxInput("show_goes", "Mostrar imagem GOES mais recente", value = FALSE),
+    checkboxInput(
+      "show_goes",
+      "Mostrar imagem GOES mais recente",
+      value = FALSE
+    ),
     sliderInput(
       "goes_opacity",
       "Opacidade da GOES",
@@ -444,7 +513,7 @@ ui <- page_fillable(
       step = 0.05
     ),
     hr(),
-    p("Fonte: IDE-MS")
+    p("Fonte: INPE/IDE-MS")
   )
 )
 
@@ -479,58 +548,81 @@ server <- function(input, output, session) {
     )
   })
 
-  session$onFlushed(function() {
-    map_proxy() |>
-      fly_to(
-        center = SOUTH_AMERICA_CENTER,
-        zoom = SOUTH_AMERICA_ZOOM,
-        speed = 0.6,
-        curve = 1.35,
-        essential = TRUE
-      )
-  }, once = TRUE)
+  session$onFlushed(
+    function() {
+      map_proxy() |>
+        fly_to(
+          center = SOUTH_AMERICA_CENTER,
+          zoom = SOUTH_AMERICA_ZOOM,
+          speed = 0.6,
+          curve = 1.35,
+          essential = TRUE
+        )
+    },
+    once = TRUE
+  )
 
   observe(sync_dark_mode())
 
-  observeEvent(input$style, {
-    sync_dark_mode()
+  observeEvent(
+    input$style,
+    {
+      sync_dark_mode()
 
-    map_proxy() |>
-      set_style(
-        style = mapbox_style(input$style),
-        preserve_layers = TRUE
-      )
-  }, ignoreInit = TRUE)
+      map_proxy() |>
+        set_style(
+          style = mapbox_style(input$style),
+          preserve_layers = TRUE
+        )
+    },
+    ignoreInit = TRUE
+  )
 
-  observeEvent(input$wms_layer, {
-    set_active_wms_layer(map_proxy(), input$wms_layer)
-  }, ignoreInit = TRUE)
+  observeEvent(
+    input$wms_layer,
+    {
+      set_active_wms_layer(map_proxy(), input$wms_layer)
+    },
+    ignoreInit = TRUE
+  )
 
-  observeEvent(input$wms_opacity, {
-    set_wms_opacity(map_proxy(), input$wms_opacity)
-  }, ignoreInit = TRUE)
+  observeEvent(
+    input$wms_opacity,
+    {
+      set_wms_opacity(map_proxy(), input$wms_opacity)
+    },
+    ignoreInit = TRUE
+  )
 
-  observeEvent(input$show_goes, {
-    map_proxy() |>
-      set_layout_property(
-        layer_id = goes_layer_id(),
-        name = "visibility",
-        value = if (isTRUE(input$show_goes)) "visible" else "none"
-      ) |>
-      move_layer(
-        layer_id = goes_layer_id(),
-        before_id = wms_layer_id(input$wms_layer)
-      )
-  }, ignoreInit = TRUE)
+  observeEvent(
+    input$show_goes,
+    {
+      map_proxy() |>
+        set_layout_property(
+          layer_id = goes_layer_id(),
+          name = "visibility",
+          value = if (isTRUE(input$show_goes)) "visible" else "none"
+        ) |>
+        move_layer(
+          layer_id = goes_layer_id(),
+          before_id = wms_layer_id(input$wms_layer)
+        )
+    },
+    ignoreInit = TRUE
+  )
 
-  observeEvent(input$goes_opacity, {
-    map_proxy() |>
-      set_paint_property(
-        layer_id = goes_layer_id(),
-        name = "raster-opacity",
-        value = input$goes_opacity
-      )
-  }, ignoreInit = TRUE)
+  observeEvent(
+    input$goes_opacity,
+    {
+      map_proxy() |>
+        set_paint_property(
+          layer_id = goes_layer_id(),
+          name = "raster-opacity",
+          value = input$goes_opacity
+        )
+    },
+    ignoreInit = TRUE
+  )
 }
 
 shinyApp(ui, server)
