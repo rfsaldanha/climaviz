@@ -7,6 +7,11 @@ MAP_CENTER <- c(-51.925, -14.235)
 MAP_ZOOM <- 2
 SOUTH_AMERICA_CENTER <- c(-60, -17)
 SOUTH_AMERICA_ZOOM <- 3.2
+GOES_MAX_ZOOM <- 8
+WMS_MAX_ZOOM <- 9
+BUILDINGS_MIN_ZOOM <- 13
+BUILDINGS_SOURCE <- "composite"
+BUILDINGS_SOURCE_LAYER <- "building"
 
 MAP_STYLES <- c(
   "Padrão" = "standard",
@@ -116,6 +121,42 @@ goes_layer_id <- function() {
 
 buildings_layer_id <- function() {
   "3d-buildings"
+}
+
+layer_visibility <- function(is_visible) {
+  if (isTRUE(is_visible)) "visible" else "none"
+}
+
+first_wms_layer_id <- function() {
+  wms_layer_id(wms_layer_ids()[1])
+}
+
+active_wms_visibility <- function(layer_id, selected_layer) {
+  layer_visibility(identical(layer_id, selected_layer))
+}
+
+move_goes_before_active_wms <- function(map, selected_layer) {
+  map |>
+    move_layer(
+      layer_id = goes_layer_id(),
+      before_id = wms_layer_id(selected_layer)
+    )
+}
+
+building_base_expression <- function() {
+  list("coalesce", list("get", "min_height"), 0)
+}
+
+building_height_expression <- function() {
+  list(
+    "interpolate",
+    list("linear"),
+    list("zoom"),
+    BUILDINGS_MIN_ZOOM,
+    0,
+    15,
+    list("coalesce", list("get", "height"), 0)
+  )
 }
 
 wms_tiles_url <- function(layer_id) {
@@ -341,17 +382,13 @@ add_wms_catalog <- function(map, selected_layer, wms_opacity) {
         id = wms_source_id(layer_id),
         tiles = wms_tiles_url(layer_id),
         tileSize = 256,
-        maxzoom = 9
+        maxzoom = WMS_MAX_ZOOM
       ) |>
       add_raster_layer(
         id = wms_layer_id(layer_id),
         source = wms_source_id(layer_id),
         raster_opacity = wms_opacity,
-        visibility = if (identical(layer_id, selected_layer)) {
-          "visible"
-        } else {
-          "none"
-        }
+        visibility = active_wms_visibility(layer_id, selected_layer)
       )
   }
 
@@ -364,14 +401,14 @@ add_goes_overlay <- function(map, show_goes, goes_opacity) {
       id = goes_source_id(),
       tiles = goes_tiles_url(),
       tileSize = 256,
-      maxzoom = 8
+      maxzoom = GOES_MAX_ZOOM
     ) |>
     add_raster_layer(
       id = goes_layer_id(),
       source = goes_source_id(),
       raster_opacity = goes_opacity,
-      visibility = if (isTRUE(show_goes)) "visible" else "none",
-      before_id = wms_layer_id(wms_layer_ids()[1])
+      visibility = layer_visibility(show_goes),
+      before_id = first_wms_layer_id()
     )
 }
 
@@ -379,21 +416,13 @@ add_buildings_layer <- function(map) {
   map |>
     add_fill_extrusion_layer(
       id = buildings_layer_id(),
-      source = "composite",
-      source_layer = "building",
+      source = BUILDINGS_SOURCE,
+      source_layer = BUILDINGS_SOURCE_LAYER,
       fill_extrusion_color = "#d6d3d1",
-      fill_extrusion_base = list("coalesce", list("get", "min_height"), 0),
-      fill_extrusion_height = list(
-        "interpolate",
-        list("linear"),
-        list("zoom"),
-        13,
-        0,
-        15,
-        list("coalesce", list("get", "height"), 0)
-      ),
+      fill_extrusion_base = building_base_expression(),
+      fill_extrusion_height = building_height_expression(),
       fill_extrusion_opacity = 0.72,
-      min_zoom = 13,
+      min_zoom = BUILDINGS_MIN_ZOOM,
       before_id = goes_layer_id(),
       filter = list("==", "extrude", "true")
     )
@@ -414,10 +443,7 @@ build_map <- function(
     add_wms_catalog(selected_layer, wms_opacity) |>
     add_goes_overlay(show_goes, goes_opacity) |>
     add_buildings_layer() |>
-    move_layer(
-      layer_id = goes_layer_id(),
-      before_id = wms_layer_id(selected_layer)
-    )
+    move_goes_before_active_wms(selected_layer)
 }
 
 set_active_wms_layer <- function(proxy, selected_layer) {
@@ -426,15 +452,11 @@ set_active_wms_layer <- function(proxy, selected_layer) {
       set_layout_property(
         layer_id = wms_layer_id(layer_id),
         name = "visibility",
-        value = if (identical(layer_id, selected_layer)) "visible" else "none"
+        value = active_wms_visibility(layer_id, selected_layer)
       )
   }
 
-  proxy |>
-    move_layer(
-      layer_id = goes_layer_id(),
-      before_id = wms_layer_id(selected_layer)
-    )
+  move_goes_before_active_wms(proxy, selected_layer)
 }
 
 set_wms_opacity <- function(proxy, opacity) {
@@ -522,18 +544,40 @@ server <- function(input, output, session) {
     session$sendCustomMessage("set-dark-view", is_dark_style(input$style))
   }
 
-  map_proxy <- function() {
-    mapboxgl_proxy("my_map")
-  }
-
-  output$my_map <- renderMapboxgl({
-    build_map(
+  current_map_state <- function() {
+    list(
       style_name = isolate(input$style),
       selected_layer = isolate(input$wms_layer),
       wms_opacity = isolate(input$wms_opacity),
       show_goes = isolate(input$show_goes),
       goes_opacity = isolate(input$goes_opacity)
     )
+  }
+
+  map_proxy <- function() {
+    mapboxgl_proxy("my_map")
+  }
+
+  update_map_style <- function(style_name) {
+    map_proxy() |>
+      set_style(
+        style = mapbox_style(style_name),
+        preserve_layers = TRUE
+      )
+  }
+
+  update_goes_visibility <- function(show_goes, selected_layer) {
+    map_proxy() |>
+      set_layout_property(
+        layer_id = goes_layer_id(),
+        name = "visibility",
+        value = layer_visibility(show_goes)
+      ) |>
+      move_goes_before_active_wms(selected_layer)
+  }
+
+  output$my_map <- renderMapboxgl({
+    do.call(build_map, current_map_state())
   })
 
   output$wms_legend <- renderUI({
@@ -568,12 +612,7 @@ server <- function(input, output, session) {
     input$style,
     {
       sync_dark_mode()
-
-      map_proxy() |>
-        set_style(
-          style = mapbox_style(input$style),
-          preserve_layers = TRUE
-        )
+      update_map_style(input$style)
     },
     ignoreInit = TRUE
   )
@@ -597,16 +636,7 @@ server <- function(input, output, session) {
   observeEvent(
     input$show_goes,
     {
-      map_proxy() |>
-        set_layout_property(
-          layer_id = goes_layer_id(),
-          name = "visibility",
-          value = if (isTRUE(input$show_goes)) "visible" else "none"
-        ) |>
-        move_layer(
-          layer_id = goes_layer_id(),
-          before_id = wms_layer_id(input$wms_layer)
-        )
+      update_goes_visibility(input$show_goes, input$wms_layer)
     },
     ignoreInit = TRUE
   )
