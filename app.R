@@ -84,6 +84,7 @@ WMS_LAYERS <- list(
   )
 )
 
+# Dark styles need different panel/legend treatment in both CSS and HTML.
 is_dark_style <- function(style_name) {
   identical(style_name, "dark")
 }
@@ -143,6 +144,8 @@ move_goes_before_active_wms <- function(map, selected_layer) {
     )
 }
 
+# Mapbox building geometry can have both `min_height` and `height`, so we
+# coalesce them to keep extrusion stable across styles and tiles.
 building_base_expression <- function() {
   list("coalesce", list("get", "min_height"), 0)
 }
@@ -375,6 +378,8 @@ dark_mode_script <- function() {
   "
 }
 
+# Register all WMS sources up front and toggle visibility so style switches
+# can preserve the overlay stack without re-fetching app state.
 add_wms_catalog <- function(map, selected_layer, wms_opacity) {
   for (layer_id in wms_layer_ids()) {
     map <- map |>
@@ -428,6 +433,8 @@ add_buildings_layer <- function(map) {
     )
 }
 
+# Layer order matters here: buildings stay below satellite/WMS rasters, and
+# the active climate layer remains above the optional GOES overlay.
 build_map <- function(
   style_name,
   selected_layer,
@@ -540,10 +547,13 @@ ui <- page_fillable(
 )
 
 server <- function(input, output, session) {
+  # Keep the page chrome in sync with the selected basemap style.
   sync_dark_mode <- function() {
     session$sendCustomMessage("set-dark-view", is_dark_style(input$style))
   }
 
+  # Snapshot current inputs when the map is rendered to avoid reactive churn
+  # while the widget is being initialized.
   current_map_state <- function() {
     list(
       style_name = isolate(input$style),
@@ -589,9 +599,11 @@ server <- function(input, output, session) {
           dark_mode = is_dark_style(input$style)
         )
       )
-    )
+      )
   })
 
+  # The fly-to runs once after the widget is ready so the initial animation
+  # doesn't race the first map render.
   session$onFlushed(
     function() {
       map_proxy() |>
