@@ -5,13 +5,15 @@ library(mapgl)
 
 MAP_CENTER <- c(-51.925, -14.235)
 MAP_ZOOM <- 2
+SOUTH_AMERICA_CENTER <- c(-60, -17)
+SOUTH_AMERICA_ZOOM <- 3.2
 
 MAP_STYLES <- c(
-  "Standard" = "standard",
-  "Streets" = "streets",
-  "Outdoors" = "outdoors",
-  "Satellite" = "satellite",
-  "Dark" = "dark"
+  "Padrão" = "standard",
+  "Ruas" = "streets",
+  "Ao ar livre" = "outdoors",
+  "Satélite" = "satellite",
+  "Escuro" = "dark"
 )
 
 WMS_LAYERS <- list(
@@ -197,6 +199,14 @@ app_css <- function() {
     --panel-text: #0f172a;
     --panel-muted: #475569;
     --panel-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
+    --app-font: 'Space Grotesk', 'Segoe UI', sans-serif;
+  }
+  body,
+  button,
+  input,
+  select,
+  textarea {
+    font-family: var(--app-font);
   }
   #my_map {
     height: 100vh !important;
@@ -262,6 +272,26 @@ app_css <- function() {
     right: 20px;
     bottom: 20px;
     z-index: 1000;
+  }
+  .brand-logo {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+    padding: 10px 14px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
+    backdrop-filter: blur(18px);
+  }
+  .brand-logo img {
+    display: block;
+    width: min(240px, 30vw);
+    height: auto;
+  }
+  body.dark-view .brand-logo {
+    background: rgba(255, 255, 255, 0.78);
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.42);
   }
   "
 }
@@ -358,43 +388,63 @@ set_wms_opacity <- function(proxy, opacity) {
 ui <- page_fillable(
   padding = 0,
   tags$head(
+    tags$link(
+      rel = "preconnect",
+      href = "https://fonts.googleapis.com"
+    ),
+    tags$link(
+      rel = "preconnect",
+      href = "https://fonts.gstatic.com",
+      crossorigin = "anonymous"
+    ),
+    tags$link(
+      rel = "stylesheet",
+      href = "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap"
+    ),
     tags$style(HTML(app_css())),
     tags$script(HTML(dark_mode_script()))
   ),
   mapboxglOutput("my_map"),
+  div(
+    class = "brand-logo",
+    img(
+      src = "https://shiny.icict.fiocruz.br/alertarsaude/pin_obs_horizontal.png",
+      alt = "Observatorio de Clima e Saude"
+    )
+  ),
   uiOutput("wms_legend"),
   div(
     class = "floating-panel",
-    h3("Map Controls"),
-    selectInput("style", "Map Style", choices = MAP_STYLES),
+    h3("Condições climáticas"),
+    selectInput("style", "Estilo do mapa", choices = MAP_STYLES),
     hr(),
     selectInput(
       "wms_layer",
-      "WMS Layer",
+      "Camada WMS",
       choices = wms_layer_choices(),
       selected = wms_layer_ids()[1]
     ),
     hr(),
     sliderInput(
       "wms_opacity",
-      "WMS opacity",
+      "Opacidade da WMS",
       min = 0,
       max = 1,
       value = 0.7,
       step = 0.05
     ),
     hr(),
-    checkboxInput("show_goes", "Show latest GOES image", value = FALSE),
+    checkboxInput("show_goes", "Mostrar imagem GOES mais recente", value = FALSE),
     sliderInput(
       "goes_opacity",
-      "GOES opacity",
+      "Opacidade da GOES",
       min = 0,
       max = 1,
       value = 0.75,
       step = 0.05
     ),
     hr(),
-    p("This map uses the full screen via CSS overrides.")
+    p("Fonte: IDE-MS")
   )
 )
 
@@ -428,6 +478,17 @@ server <- function(input, output, session) {
       )
     )
   })
+
+  session$onFlushed(function() {
+    map_proxy() |>
+      fly_to(
+        center = SOUTH_AMERICA_CENTER,
+        zoom = SOUTH_AMERICA_ZOOM,
+        speed = 0.6,
+        curve = 1.35,
+        essential = TRUE
+      )
+  }, once = TRUE)
 
   observe(sync_dark_mode())
 
